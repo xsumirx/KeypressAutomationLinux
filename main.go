@@ -3,6 +3,12 @@ package main
 import "gopkg.in/bendahl/uinput.v1"
 import "time"
 import "flag"
+import (
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+)
 
 
 func main() {
@@ -21,6 +27,9 @@ func main() {
 		*hotkeyDelay = 2000
 	}
 
+	cSignal := make(chan os.Signal, 1)
+	signal.Notify(cSignal, os.Interrupt, syscall.SIGTERM)
+
 	// initialize keyboard and check for possible errors
 	keyboard, err := uinput.CreateKeyboard("/dev/uinput", []byte("eurekaKeyboard"))
 	if err != nil {
@@ -31,16 +40,32 @@ func main() {
 	var ctx AppContext;
 	ctx.keyboard = keyboard
 
-	for *repeatCount != 0  {
-		for _,hotkey := range hotkeys {
-			time.Sleep(time.Duration((*hotkeyDelay)) * time.Millisecond)
-			hotkey.run(&ctx)
-		}
+	index := 0
+	hotkeysCount := len(hotkeys)
+	infinitCount := *repeatCount < 0
 
-		if *repeatCount > 0 {
-			*repeatCount --
-		}
+	for {
+		select {
+			case <-time.After(time.Duration((*hotkeyDelay)) * time.Millisecond):
+				hotkey := hotkeys[index]
+				hotkey.run(&ctx)
+				index ++
+				if index >= hotkeysCount {
+					index = 0;
+				}
 
+				if !infinitCount {
+					if *repeatCount --; *repeatCount <= 0 {
+						fmt.Println("Repeat Completed");
+						keyboard.Close()
+						os.Exit(0)
+					}
+				}
+
+			case <-cSignal:
+				fmt.Println("Signal Recieved");
+				keyboard.Close()
+				os.Exit(0)
+		}
 	}
-	
 }
